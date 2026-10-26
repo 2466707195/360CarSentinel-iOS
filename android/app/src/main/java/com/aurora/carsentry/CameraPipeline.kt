@@ -3,6 +3,7 @@ package com.aurora.carsentry
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.ImageFormat
+import android.graphics.SurfaceTexture
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
@@ -131,7 +132,9 @@ class CameraPipeline(
         val characteristics = manager.getCameraCharacteristics(cameraId)
 
         val map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
-        val sizes = map?.getOutputSizes(MediaCodecInfo.CodecCapabilities.CLASS) ?: emptyArray()
+        // getOutputSizes 要传「消费者类」：编码用的是 Surface 输入，
+        // 所以按 SurfaceTexture 查可用尺寸（写 CodecCapabilities.CLASS 是不存在的常量）。
+        val sizes = map?.getOutputSizes(SurfaceTexture::class.java) ?: emptyArray()
         val picked = pickSize(sizes)
         width = picked.width
         height = picked.height

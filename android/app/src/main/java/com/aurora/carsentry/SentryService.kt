@@ -151,8 +151,11 @@ class SentryService : Service() {
         if (pipelines.isNotEmpty()) return
 
         if (!hasCameraPermission()) {
-            lastError = "没有相机权限，画面无法采集"
-            Log.w(TAG, lastError)
+            // lastError 是可变的伴生属性，直接 Log.w(TAG, lastError) 无法智能转换，
+            // 先落一个局部常量再赋值。
+            val reason = "没有相机权限，画面无法采集"
+            lastError = reason
+            Log.w(TAG, reason)
             SentryState.setCameras(SentryState.cameras().ifEmpty { emptyChannels() })
             return
         }
