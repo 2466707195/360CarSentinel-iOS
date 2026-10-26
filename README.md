@@ -10,7 +10,7 @@
 ```
 360CarSentinel/
 ├─ project.yml                 XcodeGen 工程定义（.xcodeproj 不入库）
-├─ .github/workflows/          GitHub Actions 云端构建 → 未签名 ipa
+├─ .github/workflows/          云端构建：iOS → 未签名 ipa；Android → debug apk
 ├─ scripts/                    build / publish / inspect 脚本
 ├─ CarSentinel/                ← iOS 源码
 │  ├─ App/                     入口、根视图、自绘底栏
@@ -74,11 +74,50 @@ Contents / Actions / Workflows 三项读写。
 
 ## 二、车机端（Android）
 
-用 Android Studio 打开 `android/` 目录直接构建。
+### 出 apk（不需要 Android SDK）
 
-> 本机没有 Android SDK，**这个模块没有在这里编译过**。
-> 代码结构是按能跑写的，但车机差异极大（尤其摄像头来源），
-> 第一次上机大概率要调 `CameraPipeline` 里的分辨率与 cameraId 映射。
+推 `android/` 下的改动，GitHub Actions 自动编译；也可以去 Actions 页手动
+「Run workflow」：
+
+```
+https://github.com/2466707195/360CarSentinel-iOS/actions/workflows/android-build.yml
+```
+
+产物在最近一次 run 的 Artifacts → `carsentry-apk`。这是 **debug 签名的 apk**
+（APK Signing Block v2/v3，Android 7+ 可装），直接装车机即可；
+要上应用市场得自己配 release keystore。
+
+本地有 Android Studio 的话，打开 `android/` 目录直接 Run 也一样。
+
+### 装到车机
+
+1. apk 拷到 U 盘，插车机 → 文件管理器点开安装（车机需允许「未知来源」）
+2. 或者 `adb install -r 车载哨兵-车机端-v1.0.0.apk`
+3. 首次打开授予**相机**权限 —— 没有这个权限，画面一定出不来
+
+### 开机自启
+
+车机是「点火通电、熄火断电」的设备，没人会每次上车先点一下 App，所以默认开启。
+
+| 环节 | 实现 |
+| --- | --- |
+| 权限 | `RECEIVE_BOOT_COMPLETED` |
+| 广播 | `BootReceiver` 收 `BOOT_COMPLETED` + `QUICKBOOT_POWERON`（部分国产 ROM 的私有广播）+ `MY_PACKAGE_REPLACED`（App 升级后自动恢复，系统不会为此重发开机广播） |
+| 开关 | App 界面「开机自启」卡片，状态存 SharedPreferences，**默认开** |
+| 拉起的服务 | `startForegroundService(SentryService)`，返回 `START_STICKY`，被系统杀掉会自己回来 |
+
+几个刻意的处理：
+
+- **开机瞬间同步读设置** —— 用 SharedPreferences 而不是 DataStore，异步库在这里来不及
+- **相机权限被撤销时不硬启服务**（起来也是「无画面」），改发一条可点开的通知
+- **被 ROM 拒绝时降级**：`ForegroundServiceStartNotAllowedException` 会被 catch 住并发通知，
+  而不是静默失败
+- **界面上能看真实状态**：卡片里显示「开机广播：已注册 / 被系统禁用」，
+  避免开关明明开着、其实组件被系统禁掉的错觉
+
+> ⚠️ **有些车机会拦第三方 App 自启**，这属于系统级限制，App 没有权限绕过。
+> 如果重启后没起来，去系统的「自启动管理 / 后台运行白名单」里把「车载哨兵」放行一次。
+> 只能手动做，且不同车机路径不一样（通常在 设置 → 应用 → 自启动）。
 
 ### 它做了什么
 
@@ -89,6 +128,9 @@ Contents / Actions / Workflows 三项读写。
 - `HttpServer` —— 手写 HTTP/1.1 服务（支持 Range），提供 4 个接口 + m3u8 / ts
 - `NsdHelper` —— mDNS 广播 `_carsentry._tcp`，手机端自动发现
 - `SentryService` —— 前台服务，锁屏 / 后台不停；每 5 分钟清理 3 天前的文件
+- `BootReceiver` —— 开机自启，见上
+- `SentryPrefs` —— 本地设置（自启开关、设备名）
+
 
 ### 摄像头来源的坑
 
@@ -127,3 +169,5 @@ GET  /rec/{clipId}/index.m3u8          录像回放
 - [ ] iPhone SE 尺寸下宫格不塌版、长设备名不溢出
 - [ ] `.ts` 分片必须从 IDR 开始（否则花屏）—— 这是 HLS 最容易漏的一条
 - [ ] 车机防火墙没拦 8710
+- [ ] **重启车机一次，确认手机端不点任何按钮就能看到画面**（验证开机自启）
+- [ ] 车机系统设置里把 App 加入自启动白名单，否则上面那条一定失败

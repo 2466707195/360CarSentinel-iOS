@@ -17,8 +17,13 @@ on:
     branches:
       - main
       - master
-    tags:
-      - 'v*'
+    # 只改 android/ 或文档时不该占用 macOS 构建额度，所以加路径过滤。
+    # 注意：paths 与 tags 同时写时匹配规则很绕，本工程不用 tag 触发，就不写 tags。
+    paths:
+      - "CarSentinel/**"
+      - "project.yml"
+      - "scripts/**"
+      - ".github/workflows/ios-build.yml"
 
 jobs:
   build:
