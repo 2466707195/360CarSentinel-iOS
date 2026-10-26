@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">车载哨兵 · 车机端</string>
+    <string name="notif_channel">哨兵服务</string>
+    <string name="notif_title">车载哨兵正在运行</string>
+    <string name="notif_text">正在向手机提供实时画面与录像</string>
+</resources>

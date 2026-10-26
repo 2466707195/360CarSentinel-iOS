@@ -1,0 +1,62 @@
+# =============================================================================
+# 360 车载哨兵 iOS —— GitHub Actions 云端构建（产出未签名 ipa）
+#
+# 本工程只用 iOS 16.4 级别的 API，没有 iOS 18 的 `Tab`，也没有 iOS 26 的
+# `glassEffect` / `ToolbarSpacer` / `UITabAccessory`。
+# 所以 **不挑 Xcode**：Xcode 15.4 及以上都能编。
+# 这里仍然用 macos-15 + 自动挑最新 Xcode，只是为了编译更快、警告更少。
+#
+# 唯一必须固定的是 XcodeGen：>= 2.42 会写 objectVersion 77，
+# 老 Xcode 打不开。用 scripts/install-xcodegen.sh 装 2.38.0。
+# =============================================================================
+name: Build iOS (unsigned ipa)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Build unsigned ipa
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 自动挑镜像里最新的 Xcode（本工程不依赖新 SDK，挑了只是更稳）
+      - name: Select newest Xcode
+        run: |
+          set -euo pipefail
+          XCODE="$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1 || true)"
+          if [ -n "$XCODE" ]; then
+            echo "selected Xcode: $XCODE"
+            sudo xcode-select -s "$XCODE"
+          fi
+          xcodebuild -version
+          xcodebuild -showsdks | grep -i "iphoneos" || true
+
+      # 必须用固定版本：XcodeGen >= 2.42 会生成 Xcode 16 专属的工程格式(77)
+      - name: Install XcodeGen (pinned 2.38.0)
+        run: |
+          bash scripts/install-xcodegen.sh
+          echo "/usr/local/bin" >> "$GITHUB_PATH"
+
+      - name: Build unsigned ipa
+        run: bash scripts/build-unsigned-ipa.sh
+
+      - name: Upload ipa artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-unsigned-ipa
+          path: |
+            build/*.ipa
+            build/Info.json
+          if-no-files-found: error
+          retention-days: 30

@@ -1,0 +1,35 @@
+# =============================================================================
+# iOS 云端构建 —— Codemagic
+#
+# 同样不需要 Mac：Codemagic 用托管的 macOS 机器编译，产出未签名 ipa。
+#
+# 用法：
+#   1. 把工程目录的【内容】推到 GitHub 仓库
+#   2. Codemagic 后台 Add app → 选 GitHub → 授权 → 选仓库
+#   3. 首次构建会自动读本文件；也可以在 Start build 里手动触发
+#   4. 构建完成后在 Artifacts 里下载 *.ipa
+#   5. 把 ipa 传到「全能签」重签 → 装到手机
+#
+# 免费额度：每月 500 分钟 macOS 构建时间，一次构建约 3~6 分钟。
+# =============================================================================
+name: ios-unsigned-ipa
+
+workflows:
+  build_unsigned_ipa:
+    name: Build unsigned ipa
+    max_build_duration: 60
+
+    scripts:
+      # 必须用固定版本，理由同 GitHub Actions 那条
+      - name: Install XcodeGen (pinned 2.38.0)
+        script: |
+          bash scripts/install-xcodegen.sh
+          export PATH="/usr/local/bin:$PATH"
+
+      - name: Build unsigned ipa
+        script: |
+          export PATH="/usr/local/bin:$PATH"
+          bash scripts/build-unsigned-ipa.sh
+
+    artifacts:
+      - path: build/*.ipa

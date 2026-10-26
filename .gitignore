@@ -1,0 +1,27 @@
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# XcodeGen 生成物
+CarSentinel.xcodeproj/
+CarSentinel/Resources/Info.plist
+
+# Android（车机端）
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+
+# macOS / Windows
+.DS_Store
+Thumbs.db

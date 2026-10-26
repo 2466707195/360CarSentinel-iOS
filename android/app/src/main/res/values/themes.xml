@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 车机屏幕长期常亮、无系统 ActionBar；配色交给 Compose 的 AuroraTheme -->
+    <style name="Theme.CarSentry" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/aurora_canvas</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+</resources>
