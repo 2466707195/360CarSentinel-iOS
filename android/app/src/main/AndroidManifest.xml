@@ -10,6 +10,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- 开机自启：车机熄火断电、点火通电，用户不会每次手动点 App -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
     <!-- 车机通常有多路外接摄像头（UVC/环视盒子），所以不写 required -->
     <uses-feature
         android:name="android.hardware.camera"
@@ -45,6 +48,24 @@
             android:name=".SentryService"
             android:exported="false"
             android:foregroundServiceType="camera" />
+
+        <!--
+            开机自启。exported 必须为 true —— 系统广播是外部来源，Android 12+ 强制要求显式声明。
+            QUICKBOOT_POWERON 是部分国产 ROM 的私有开机广播，一起收着不吃亏。
+            MY_PACKAGE_REPLACED 用于「App 升级后自动恢复服务」，系统不会为此再发 BOOT_COMPLETED。
+        -->
+        <receiver
+            android:name=".BootReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter android:priority="1000">
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="android.intent.action.HTC_QUICKBOOT_POWERON" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
     </application>
 

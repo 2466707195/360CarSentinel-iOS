@@ -71,9 +71,16 @@ class SentryService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         SentryState.startedAtMs = System.currentTimeMillis()
-        SentryState.deviceName = intent?.getStringExtra("deviceName") ?: SentryState.deviceName
+        // 开机自启时 intent 带的是持久化的设备名；被系统 START_STICKY 重建时 intent 为 null，
+        // 也要退回到本地设置，否则 mDNS 广播名会变成空串，手机端就扫不到了。
+        SentryState.deviceName = intent?.getStringExtra("deviceName")
+            ?: SentryPrefs.deviceName(this)
         SentryState.model = "${Build.MANUFACTURER} ${Build.MODEL}"
         SentryState.httpPort = PORT
+
+        if (intent?.getBooleanExtra("fromBoot", false) == true) {
+            Log.i(TAG, "本次启动来自开机广播")
+        }
 
         startServer()
         startCameraPipelines()

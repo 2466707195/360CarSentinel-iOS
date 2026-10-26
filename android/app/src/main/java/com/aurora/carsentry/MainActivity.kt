@@ -1,6 +1,7 @@
 package com.aurora.carsentry
 
 import android.Manifest
+import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -30,15 +31,19 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -88,7 +93,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startSentry() {
-        val intent = Intent(this, SentryService::class.java)
+        val intent = Intent(this, SentryService::class.java).apply {
+            putExtra("deviceName", SentryPrefs.deviceName(this@MainActivity))
+        }
         ContextCompat.startForegroundService(this, intent)
     }
 
@@ -102,6 +109,8 @@ class MainActivity : ComponentActivity() {
 private fun Dashboard(onStart: () -> Unit, onStop: () -> Unit) {
 
     val tick by ServiceBus.tick.collectAsState()
+    val ctx = LocalContext.current
+    var autoStart by remember { mutableStateOf(SentryPrefs.autoStart(ctx)) }
 
     LaunchedEffect(tick) {
         SentryService.instance?.refreshCameraInfo()
@@ -141,6 +150,13 @@ private fun Dashboard(onStart: () -> Unit, onStop: () -> Unit) {
                         ip = ip,
                         onStart = onStart,
                         onStop = onStop,
+                    )
+                    autoStartCard(
+                        enabled = autoStart,
+                        onChange = {
+                            autoStart = it
+                            SentryPrefs.setAutoStart(ctx, it)
+                        },
                     )
                     connectCard(ip = ip)
                 }
@@ -244,6 +260,56 @@ private fun serviceCard(
             }
         }
     }
+}
+
+@Composable
+private fun autoStartCard(enabled: Boolean, onChange: (Boolean) -> Unit) {
+    val ctx = LocalContext.current
+    val receiverAlive = remember(enabled) { bootReceiverEnabled(ctx) }
+
+    SectionCard {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "开机自启",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    if (enabled) "点火开机后自动开始推流，不用上车点 App" else "开机后不会自动启动，需手动点「启动服务」",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(checked = enabled, onCheckedChange = onChange)
+        }
+
+        Spacer(Modifier.height(8.dp))
+        InfoLine("开机广播", if (receiverAlive) "已注册" else "被系统禁用")
+        InfoLine("生效时机", "下次开机 / App 升级后")
+
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "部分车机会拦截第三方 App 自启。如果重启后没起来，去系统的「自启动管理 / 后台白名单」" +
+                "里把「车载哨兵」放行一次 —— 这一步只能手动做，App 自己没有权限改。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            lineHeight = 17.sp,
+        )
+    }
+}
+
+/** 有些车机系统会直接把组件禁用掉，这里查一下真实状态，别让用户以为开关开了就生效 */
+private fun bootReceiverEnabled(ctx: Context): Boolean = try {
+    val component = ComponentName(ctx, BootReceiver::class.java)
+    ctx.packageManager.getComponentEnabledSetting(component) !=
+        PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+} catch (e: Exception) {
+    true
 }
 
 @Composable

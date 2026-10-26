@@ -1,0 +1,74 @@
+# =============================================================================
+# 360 车载哨兵 · 车机端（Android）—— 云端编译 APK
+#
+# 为什么要有这条流水线：开发机是 Windows，没有 Android SDK，但车机是 Android。
+# GitHub 的 ubuntu runner 自带 Android SDK（platform 34 + build-tools 34），
+# 所以 Android 端也能像 iOS 一样「推代码 → 出包 → 下载」。
+#
+# 产物是 debug 签名的 APK，能直接装到车机上（debug key 由本地生成，
+# 不需要开发者账号）。要上应用市场的正式包得自己配 release keystore。
+# =============================================================================
+name: Build Android APK (车机端)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - "android/**"
+      - ".github/workflows/android-build.yml"
+
+jobs:
+  build:
+    name: Build debug apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # 工程里没有 gradle wrapper（本地没装 gradle 生成不了），
+      # 所以由这个 action 直接把 Gradle 二进制装到 PATH 上，版本显式钉死。
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Show toolchain
+        run: |
+          java -version
+          gradle --version
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls "$ANDROID_HOME/platforms" || true
+
+      - name: Assemble debug apk
+        working-directory: android
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Collect apk
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          APK="$(find android/app/build/outputs/apk -name '*.apk' | head -1)"
+          if [ -z "$APK" ]; then echo "!! 没有产出 apk"; exit 1; fi
+          cp "$APK" out/CarSentryCar-debug.apk
+          ls -la out
+          # 记录版本与签名信息，方便验包
+          "$ANDROID_HOME/build-tools/34.0.0/aapt2" dump badging out/CarSentryCar-debug.apk 2>/dev/null | head -5 || true
+
+      - name: Upload apk
+        uses: actions/upload-artifact@v4
+        with:
+          name: carsentry-apk
+          path: out/CarSentryCar-debug.apk
+          if-no-files-found: error
+          retention-days: 30
