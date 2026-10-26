@@ -44,12 +44,6 @@ class UvcSource(private val deviceName: String) : VideoSource {
         private const val URB_PACKETS = 16
         private const val URB_COUNT = 4
 
-        // UVC 类请求
-        private const val SET_CUR = 0x01
-        private const val GET_CUR = 0x81
-        private const val VS_PROBE_CONTROL = 0x01
-        private const val VS_COMMIT_CONTROL = 0x02
-
         private const val UVC_CLASS = UsbConstants.USB_CLASS_VIDEO // 14
 
         /** 找出所有 UVC 摄像头，给 UI 选源用 */
@@ -257,7 +251,9 @@ class UvcSource(private val deviceName: String) : VideoSource {
         for (i in 0 until device.interfaceCount) {
             val intf = device.getInterface(i)
             if (intf.interfaceClass != UVC_CLASS || intf.interfaceSubclass != 2) continue
-            if (intf.interfaceNumber != info.interfaceIndex) continue
+            // UsbInterface 上没有 interfaceNumber 这个属性，
+            // 接口号是 getId()（Kotlin 里就是 .id），这个坑很隐蔽。
+            if (intf.id != info.interfaceIndex) continue
             if (intf.endpointCount == 0) continue
 
             val ep = intf.getEndpoint(0)
@@ -368,6 +364,13 @@ class UvcDescriptor(
 
         private const val VS_FORMAT_MJPEG = 0x06
         private const val VS_FRAME_MJPEG = 0x07
+
+        // UVC 类请求。放在这里而不是 UvcSource —— 协商逻辑（negotiate/setCur）
+        // 属于本类，常量跟着逻辑走，别散在另一个类的伴生对象里。
+        private const val SET_CUR = 0x01
+        private const val GET_CUR = 0x81
+        private const val VS_PROBE_CONTROL = 0x01
+        private const val VS_COMMIT_CONTROL = 0x02
 
         fun parse(conn: UsbDeviceConnection, device: UsbDevice): UvcDescriptor? {
             val buffer = ByteArray(4096)
@@ -494,9 +497,10 @@ class UvcDescriptor(
             return false
         }
 
+        // wIndex：低字节是接口号，高字节是实体 ID（0 表示接口本身）
         val back = ByteArray(length)
         val got = conn.controlTransfer(
-            0xA1, GET_CUR, (VS_PROBE_CONTROL shl 8), interfaceIndex or (0 shl 8), back, length, 2000
+            0xA1, GET_CUR, (VS_PROBE_CONTROL shl 8), interfaceIndex, back, length, 2000
         )
         if (got < 0) {
             Log.w(TAG, "GET_CUR(PROBE) 失败：$got")
