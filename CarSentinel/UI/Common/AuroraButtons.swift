@@ -1,8 +1,10 @@
 import SwiftUI
 
 // === Aurora UI 按钮（iOS / SwiftUI）===
-// 硬规则：按钮文字必须居中 —— 统一用 Button + 居中的 label，
-// 不要自己拼 HStack 挤文案。
+// 硬规则：
+//   1. 按钮文字必须居中 —— 统一用 Button + 居中的 label，不要自己拼 HStack 挤文案。
+//   2. 底一律是**透明玻璃**（见 AuroraGlass.swift），不再用实心色块。
+//      品牌色只作为「染色 + 文字色」出现，这样底下的极光背景能透上来。
 
 /// 按钮文字：图标 + 文案，整体水平垂直居中。
 ///
@@ -38,7 +40,9 @@ struct AuroraButtonLabel: View {
     }
 }
 
-/// 主按钮：品牌色实心、白字。
+/// 主按钮：品牌色玻璃 + 白字。
+///
+/// 「染色而不是实心」是这次改版的关键 —— 实心色块和玻璃底栏放在一起会显得闷。
 struct PrimaryButton: View {
 
     let text: String
@@ -46,6 +50,8 @@ struct PrimaryButton: View {
     var enabled: Bool = true
     var expands: Bool = true
     let action: () -> Void
+
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         Button(action: action) {
@@ -55,7 +61,26 @@ struct PrimaryButton: View {
                 expands: expands
             )
             .foregroundStyle(Color.white)
-            .background(AuroraShape.button.fill(Aurora.brand))
+            .background {
+                ZStack {
+                    AuroraShape.button.fill(.ultraThinMaterial)
+                    AuroraShape.button
+                        .fill(Aurora.brand)
+                        .opacity(scheme == .dark ? 0.74 : 0.86)
+                    AuroraShape.button.fill(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.24), Color.white.opacity(0.02)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                }
+            }
+            .clipShape(AuroraShape.button)
+            .overlay {
+                AuroraShape.button.strokeBorder(Color.white.opacity(0.34), lineWidth: 1)
+            }
+            .shadow(color: Aurora.brand.opacity(0.28), radius: 12, x: 0, y: 6)
         }
         .buttonStyle(PressScaleStyle())
         .disabled(!enabled)
@@ -63,7 +88,7 @@ struct PrimaryButton: View {
     }
 }
 
-/// 次按钮：品牌浅底（primaryContainer）。
+/// 次按钮：中性玻璃 + 品牌色文字。
 struct TonalButton: View {
 
     let text: String
@@ -72,6 +97,8 @@ struct TonalButton: View {
     var expands: Bool = true
     let action: () -> Void
 
+    @Environment(\.colorScheme) private var scheme
+
     var body: some View {
         Button(action: action) {
             AuroraButtonLabel(
@@ -79,8 +106,8 @@ struct TonalButton: View {
                 systemIcon: systemIcon,
                 expands: expands
             )
-            .foregroundStyle(Aurora.onBrandContainer)
-            .background(AuroraShape.button.fill(Aurora.brandContainer))
+            .foregroundStyle(Aurora.readableBrand(scheme))
+            .auroraGlass(AuroraShape.button, tint: Aurora.brand, tintOpacity: 0.10)
         }
         .buttonStyle(PressScaleStyle())
         .disabled(!enabled)
@@ -88,9 +115,7 @@ struct TonalButton: View {
     }
 }
 
-/// 主 CTA：品牌渐变底、白字。禁用时渐变换成 muted 实色。
-///
-/// 一个页面最多一个。
+/// 主 CTA：品牌渐变玻璃 + 白字。一个页面最多一个。
 struct GradientButton: View {
 
     let text: String
@@ -107,11 +132,7 @@ struct GradientButton: View {
                 expands: expands
             )
             .foregroundStyle(Color.white)
-            .background(
-                enabled
-                    ? AnyShapeStyle(Aurora.brandGradient)
-                    : AnyShapeStyle(Aurora.muted)
-            )
+            .auroraGlassGradient(cornerRadius: 16, enabled: enabled)
         }
         .buttonStyle(PressScaleStyle())
         .disabled(!enabled)
@@ -128,6 +149,8 @@ struct SmallTonalButton: View {
     var expands: Bool = false
     let action: () -> Void
 
+    @Environment(\.colorScheme) private var scheme
+
     var body: some View {
         Button(action: action) {
             AuroraButtonLabel(
@@ -137,11 +160,9 @@ struct SmallTonalButton: View {
                 font: AuroraFont.labelMedium,
                 expands: expands
             )
-            .foregroundStyle(Aurora.onBrandContainer)
-            .background(
-                RoundedRectangle(cornerRadius: 13, style: .continuous)
-                    .fill(Aurora.brandContainer)
-            )
+            .padding(.horizontal, expands ? 0 : 12)
+            .foregroundStyle(Aurora.readableBrand(scheme))
+            .auroraGlass(cornerRadius: 13, tint: Aurora.brand, tintOpacity: 0.10, shadowRadius: 6)
         }
         .buttonStyle(PressScaleStyle())
         .disabled(!enabled)
@@ -149,7 +170,7 @@ struct SmallTonalButton: View {
     }
 }
 
-/// 危险操作按钮（玫瑰浅底）。
+/// 危险操作按钮：玻璃 + 玫瑰色染色与文字。
 struct DangerTonalButton: View {
 
     let text: String
@@ -158,6 +179,8 @@ struct DangerTonalButton: View {
     var expands: Bool = true
     let action: () -> Void
 
+    @Environment(\.colorScheme) private var scheme
+
     var body: some View {
         Button(action: action) {
             AuroraButtonLabel(
@@ -165,8 +188,8 @@ struct DangerTonalButton: View {
                 systemIcon: systemIcon,
                 expands: expands
             )
-            .foregroundStyle(Aurora.onRoseContainer)
-            .background(AuroraShape.button.fill(Aurora.roseContainer))
+            .foregroundStyle(Aurora.readableRose(scheme))
+            .auroraGlass(AuroraShape.button, tint: Aurora.rose, tintOpacity: 0.16)
         }
         .buttonStyle(PressScaleStyle())
         .disabled(!enabled)
@@ -175,11 +198,14 @@ struct DangerTonalButton: View {
 }
 
 /// 文字按钮（对应 Material 的 TextButton）。
+/// 也走玻璃胶囊 —— 否则在一堆玻璃按钮里会显得突兀。
 struct TextLinkButton: View {
 
     let text: String
     var systemIcon: String? = nil
     let action: () -> Void
+
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         Button(action: action) {
@@ -192,7 +218,10 @@ struct TextLinkButton: View {
                     .font(AuroraFont.labelMedium)
                     .lineLimit(1)
             }
-            .foregroundStyle(Aurora.brand)
+            .foregroundStyle(Aurora.readableBrand(scheme))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .auroraGlass(cornerRadius: 10, tint: Aurora.brand, tintOpacity: 0.06, shadowRadius: 0)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

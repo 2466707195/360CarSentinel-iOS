@@ -242,21 +242,130 @@ struct SentinelEvent: Identifiable, Codable, Hashable {
 
 // MARK: - 连接
 
-/// 车机地址。局域网直连，没有云端中转。
+/// 车机地址。两种连法：
+///
+///   · `.lan`    —— 局域网直连（手机和车机同一个 WiFi / 车机热点）
+///   · `.remote` —— 走中继（车机主动外连中继，手机在任何网络下都能看）
+///
+/// 两种模式在协议层完全一样，都是「HTTP + 相对路径」，区别只在 baseURL：
+/// 局域网的 baseURL 是 `http://192.168.43.1:8710`，
+/// 远程的 baseURL 是 `https://relay.example.com/v1/{房间号}/{密钥}`。
+/// 播放器（AVPlayer）拿到的永远是一个普通 http(s) 地址，所以播放逻辑零改动。
 struct DeviceEndpoint: Codable, Hashable, Identifiable {
+
+    enum Kind: String, Codable, Hashable {
+        case lan
+        case remote
+
+        var label: String {
+            self == .remote ? "远程" : "局域网"
+        }
+    }
+
+    var kind: Kind
+    var scheme: String
     var host: String
     var port: Int
+    /// 中继模式的路径前缀，例如 `v1/abc123/def456`（不带首尾斜杠）
+    var pathPrefix: String
     var name: String
 
-    var id: String { "\(host):\(port)" }
+    init(
+        kind: Kind = .lan,
+        scheme: String = "http",
+        host: String,
+        port: Int,
+        pathPrefix: String = "",
+        name: String
+    ) {
+        self.kind = kind
+        self.scheme = scheme
+        self.host = host
+        self.port = port
+        self.pathPrefix = pathPrefix
+        self.name = name
+    }
 
-    var baseURL: URL? { URL(string: "http://\(host):\(port)") }
-    var display: String { "\(host):\(port)" }
+    // 旧版本存下来的 JSON 没有 kind / scheme / pathPrefix，
+    // 直接合成解码会失败 → 用户「升级后连接记录没了」。
+    // 这里全部用 decodeIfPresent + 默认值兜住。
+    private enum CodingKeys: String, CodingKey {
+        case kind, scheme, host, port, pathPrefix, name
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try container.decodeIfPresent(Kind.self, forKey: .kind) ?? .lan
+        scheme = try container.decodeIfPresent(String.self, forKey: .scheme) ?? "http"
+        host = try container.decode(String.self, forKey: .host)
+        port = try container.decode(Int.self, forKey: .port)
+        pathPrefix = try container.decodeIfPresent(String.self, forKey: .pathPrefix) ?? ""
+        name = try container.decode(String.self, forKey: .name)
+    }
+
+    var isRemote: Bool { kind == .remote }
+
+    var id: String { baseURLString }
+
+    /// 拼出完整的 base URL（不带末尾斜杠）。
+    /// 80/443 端口不写进 URL —— 写上去会让某些 CDN / 中继的证书校验对不上。
+    var baseURLString: String {
+        var result = "\(scheme)://\(host)"
+        let isDefaultPort = (scheme == "https" && port == 443) || (scheme == "http" && port == 80)
+        if port > 0 && !isDefaultPort {
+            result += ":\(port)"
+        }
+        let trimmed = pathPrefix.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if !trimmed.isEmpty {
+            result += "/" + trimmed
+        }
+        return result
+    }
+
+    var baseURL: URL? { URL(string: baseURLString) }
+
+    var display: String {
+        isRemote ? "远程 · \(name)" : "\(host):\(port)"
+    }
 
     static let defaultPort = 8710
 
     /// 只在没有历史记录时用得上：大部分国产车机的热点网关是 192.168.43.1。
     static let suggested = DeviceEndpoint(host: "192.168.43.1", port: defaultPort, name: "车载热点")
+
+    /// 由「中继地址 + 房间号 + 密钥」造一个远程端点。
+    /// 用户可能填 `https://relay.example.com`，也可能填 `relay.example.com` 或带路径的地址。
+    static func remote(relayURL: String, room: String, key: String, name: String = "远程中继") -> DeviceEndpoint? {
+        var text = relayURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+
+        if !text.lowercased().hasPrefix("http://") && !text.lowercased().hasPrefix("https://") {
+            text = "https://" + text
+        }
+        while text.hasSuffix("/") { text.removeLast() }
+        guard let url = URL(string: text), let host = url.host else { return nil }
+
+        let scheme = url.scheme?.lowercased() ?? "https"
+        let port = url.port ?? (scheme == "https" ? 443 : 80)
+
+        // 用户可能自己把 /v1/xx/yy 写进去了，避免重复
+        var prefix = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let cleanRoom = room.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if prefix.isEmpty {
+            prefix = "v1/\(cleanRoom)/\(cleanKey)"
+        }
+
+        return DeviceEndpoint(
+            kind: .remote,
+            scheme: scheme,
+            host: host,
+            port: port,
+            pathPrefix: prefix,
+            name: name
+        )
+    }
 }
 
 enum LinkState: Equatable {

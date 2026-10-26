@@ -120,52 +120,50 @@ struct DeviceView: View {
                 title: "车机地址",
                 value: store.endpoint?.display ?? "未设置"
             )
-            HairLine()
-            InfoRow(
-                systemIcon: "memorychip",
-                title: "固件版本",
-                value: store.device.firmware
-            )
-            HairLine()
-            InfoRow(
-                systemIcon: "timer",
-                title: "本次运行",
-                value: store.device.uptimeText
-            )
+
+            // 这几行必须裹一层 VStack：SectionCard 的 @ViewBuilder 最多接 10 个 child，
+            // 平铺写会超限（"extra argument in call"），是新版加「连接方式」那行踩到的坑。
+            VStack(spacing: 0) {
+                HairLine()
+                InfoRow(
+                    systemIcon: "memorychip",
+                    title: "固件版本",
+                    value: store.device.firmware
+                )
+                HairLine()
+                if let endpoint = store.endpoint {
+                    InfoRow(
+                        systemIcon: endpoint.isRemote ? "globe.asia.australia" : "wifi",
+                        title: "连接方式",
+                        value: endpoint.isRemote ? "远程中继" : "局域网直连",
+                        valueTint: endpoint.isRemote ? Aurora.teal : Aurora.brand
+                    )
+                }
+                InfoRow(
+                    systemIcon: "timer",
+                    title: "本次运行",
+                    value: store.device.uptimeText
+                )
+            }
 
             Spacer().frame(height: 12)
 
             HStack(spacing: 8) {
-                Button {
+                PrimaryButton(
+                    text: store.link.isOnline ? "更换车机" : "连接车机",
+                    systemIcon: "antenna.radiowaves.left.and.right"
+                ) {
                     showConnect = true
-                } label: {
-                    AuroraButtonLabel(
-                        text: store.link.isOnline ? "更换车机" : "连接车机",
-                        systemIcon: "antenna.radiowaves.left.and.right",
-                        height: AuroraMetrics.primaryButtonHeight,
-                        font: AuroraFont.labelLarge,
-                        expands: true
-                    )
-                    .foregroundStyle(Color.white)
-                    .background(AuroraShape.button.fill(Aurora.brand))
                 }
-                .buttonStyle(PressScaleStyle())
 
                 if store.link.isOnline {
-                    Button {
+                    DangerTonalButton(
+                        text: "断开",
+                        systemIcon: "xmark.circle",
+                        expands: false
+                    ) {
                         store.disconnect()
-                    } label: {
-                        AuroraButtonLabel(
-                            text: "断开",
-                            systemIcon: "xmark.circle",
-                            height: AuroraMetrics.primaryButtonHeight,
-                            font: AuroraFont.labelLarge,
-                            expands: true
-                        )
-                        .foregroundStyle(Aurora.onRoseContainer)
-                        .background(AuroraShape.button.fill(Aurora.roseContainer))
                     }
-                    .buttonStyle(PressScaleStyle())
                     .frame(width: 96)
                 }
             }

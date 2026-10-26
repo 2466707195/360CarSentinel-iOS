@@ -3,10 +3,12 @@ import SwiftUI
 // =============================================================================
 // 连接车机
 //
-// 两条路：
+// 三种接入方式，全部收敛到同一个 DeviceEndpoint：
 //   1. 自动扫描 —— 车机广播 `_carsentry._tcp`，同一个 WiFi 下直接出现
-//   2. 手动输入 —— 车机热点网段不固定（192.168.43.1 / 192.168.0.x 都有），
-//      自动扫不到时得能手输
+//   2. 手动 IP  —— 车机热点网段不固定（192.168.43.1 / 192.168.0.x 都有）
+//   3. 远程中继 —— 车机主动连公网中继，手机在任何网络下都能看
+//
+// 前两种是「局域网」，后一种是「远程」，协议完全一样，只是 baseURL 不同。
 // =============================================================================
 
 struct ConnectSheet: View {
@@ -16,8 +18,15 @@ struct ConnectSheet: View {
 
     @StateObject private var discovery = DeviceDiscovery()
 
+    @State private var mode: DeviceEndpoint.Kind = .lan
+
     @State private var host: String = ""
     @State private var port: String = "\(DeviceEndpoint.defaultPort)"
+
+    @State private var relayURL: String = ""
+    @State private var relayRoom: String = ""
+    @State private var relayKey: String = ""
+
     @State private var connecting = false
     @State private var errorText: String?
 
@@ -30,9 +39,14 @@ struct ConnectSheet: View {
 
                     header
 
-                    scanCard
+                    modePicker
 
-                    manualCard
+                    if mode == .lan {
+                        scanCard
+                        manualCard
+                    } else {
+                        remoteCard
+                    }
 
                     hintCard
 
@@ -48,8 +62,12 @@ struct ConnectSheet: View {
         .onAppear {
             discovery.start()
             if let endpoint = store.endpoint {
+                mode = endpoint.kind
                 host = endpoint.host
                 port = "\(endpoint.port)"
+                if endpoint.isRemote {
+                    relayURL = "\(endpoint.scheme)://\(endpoint.host)"
+                }
             }
         }
         .onDisappear { discovery.stop() }
@@ -63,7 +81,7 @@ struct ConnectSheet: View {
                 Text("连接车机")
                     .font(AuroraFont.headlineSmall)
                     .foregroundStyle(Aurora.ink)
-                Text("手机和车机必须在同一个 WiFi 下")
+                Text(mode == .lan ? "手机和车机必须在同一个 WiFi 下" : "车机连上中继后，任意网络都能看")
                     .font(AuroraFont.bodySmall)
                     .foregroundStyle(Aurora.inkSoft)
             }
@@ -75,12 +93,36 @@ struct ConnectSheet: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Aurora.inkSoft)
                     .frame(width: 34, height: 34)
-                    .background(Circle().fill(Aurora.surfaceVariant))
                     .contentShape(Circle())
+                    .auroraGlassCircle(diameter: 34, tint: Aurora.brand, tintOpacity: 0.04)
             }
             .buttonStyle(.plain)
         }
         .padding(.top, 4)
+    }
+
+    // MARK: - 模式切换
+
+    private var modePicker: some View {
+        HStack(spacing: 8) {
+            ChipButton(
+                title: "局域网",
+                systemIcon: "wifi",
+                selected: mode == .lan
+            ) {
+                withAnimation(.easeOut(duration: 0.16)) { mode = .lan }
+            }
+
+            ChipButton(
+                title: "远程中继",
+                systemIcon: "globe.asia.australia",
+                selected: mode == .remote
+            ) {
+                withAnimation(.easeOut(duration: 0.16)) { mode = .remote }
+            }
+
+            Spacer(minLength: 0)
+        }
     }
 
     // MARK: - 扫描
@@ -174,7 +216,7 @@ struct ConnectSheet: View {
         }
     }
 
-    // MARK: - 手动
+    // MARK: - 手动 IP
 
     private var manualCard: some View {
         SectionCard {
@@ -208,7 +250,11 @@ struct ConnectSheet: View {
 
             Spacer().frame(height: 12)
 
-            Button {
+            PrimaryButton(
+                text: connecting ? "连接中…" : "连接",
+                systemIcon: "bolt.horizontal.circle",
+                enabled: !connecting
+            ) {
                 let trimmedPort = port.trimmingCharacters(in: .whitespaces)
                 let raw = trimmedPort.isEmpty ? host : "\(host):\(trimmedPort)"
                 guard let endpoint = DeviceDiscovery.parseEndpoint(raw) else {
@@ -216,21 +262,78 @@ struct ConnectSheet: View {
                     return
                 }
                 connect(to: endpoint)
-            } label: {
-                AuroraButtonLabel(
-                    text: connecting ? "连接中…" : "连接",
-                    systemIcon: "bolt.horizontal.circle",
-                    height: AuroraMetrics.primaryButtonHeight,
-                    font: AuroraFont.labelLarge,
-                    expands: true
-                )
-                .foregroundStyle(Color.white)
-                .background(
-                    AuroraShape.button.fill(connecting ? Aurora.muted : Aurora.brand)
-                )
             }
-            .buttonStyle(PressScaleStyle())
-            .disabled(connecting)
+        }
+    }
+
+    // MARK: - 远程
+
+    private var remoteCard: some View {
+        // 三个输入框 + 错误提示裹在一个 VStack 里：
+        // SectionCard 的 @ViewBuilder 上限是 10 个 child，平铺写会超限编不过。
+        SectionCard {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("远程中继")
+                    .font(AuroraFont.titleSmall)
+                    .foregroundStyle(Aurora.ink)
+
+                Spacer().frame(height: 4)
+
+                Text("车机先在中继服务上登记（房间号 + 密钥），手机填同样的三个值。视频是原样透传，不经过二次转码。")
+                    .font(AuroraFont.labelSmall)
+                    .foregroundStyle(Aurora.inkSoft)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Spacer().frame(height: 10)
+
+                AuroraTextField(
+                    placeholder: "relay.example.com",
+                    text: $relayURL,
+                    systemIcon: "globe"
+                )
+
+                Spacer().frame(height: 8)
+
+                AuroraTextField(
+                    placeholder: "房间号（车机上显示的那串）",
+                    text: $relayRoom,
+                    systemIcon: "number"
+                )
+
+                Spacer().frame(height: 8)
+
+                AuroraTextField(
+                    placeholder: "密钥",
+                    text: $relayKey,
+                    systemIcon: "key"
+                )
+
+                if let errorText {
+                    Spacer().frame(height: 8)
+                    Text(errorText)
+                        .font(AuroraFont.labelSmall)
+                        .foregroundStyle(Aurora.rose)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Spacer().frame(height: 12)
+
+            PrimaryButton(
+                text: connecting ? "连接中…" : "通过中继连接",
+                systemIcon: "antenna.radiowaves.left.and.right",
+                enabled: !connecting
+            ) {
+                guard let endpoint = DeviceEndpoint.remote(
+                    relayURL: relayURL,
+                    room: relayRoom,
+                    key: relayKey
+                ) else {
+                    errorText = "中继地址不对，试试 relay.example.com"
+                    return
+                }
+                connect(to: endpoint)
+            }
         }
     }
 
@@ -249,13 +352,21 @@ struct ConnectSheet: View {
                     )
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("找不到车机？")
+                    Text(mode == .lan ? "找不到车机？" : "远程连不上？")
                         .font(AuroraFont.titleSmall)
                         .foregroundStyle(Aurora.ink)
-                    Text("· 车机端 App 要处于前台或已设为开机自启\n· 车机开热点，手机连这个热点最稳\n· 首次连接时 iOS 会弹「本地网络」权限，必须允许\n· 车机防火墙不要拦 8710 端口")
-                        .font(AuroraFont.labelSmall)
-                        .foregroundStyle(Aurora.inkSoft)
-                        .fixedSize(horizontal: false, vertical: true)
+
+                    if mode == .lan {
+                        Text("· 车机端 App 要处于前台或已设为开机自启\n· 车机开热点，手机连这个热点最稳\n· 首次连接时 iOS 会弹「本地网络」权限，必须允许\n· 车机防火墙不要拦 8710 端口")
+                            .font(AuroraFont.labelSmall)
+                            .foregroundStyle(Aurora.inkSoft)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        Text("· 车机端「远程观看」开关要打开，状态显示「已连接」\n· 房间号和密钥必须与车机完全一致（区分大小写）\n· 中继地址不要带 https:// 和末尾斜杠\n· 远程比局域网多 1 跳，延迟会高 100–300ms")
+                            .font(AuroraFont.labelSmall)
+                            .foregroundStyle(Aurora.inkSoft)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
         }
@@ -277,7 +388,7 @@ struct ConnectSheet: View {
             } else if case .failed(let reason) = store.link {
                 errorText = reason
             } else {
-                errorText = "连接失败，请检查地址和 WiFi"
+                errorText = "连接失败，请检查地址和网络"
             }
         }
     }

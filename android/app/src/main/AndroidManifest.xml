@@ -13,12 +13,18 @@
     <!-- 开机自启：车机熄火断电、点火通电，用户不会每次手动点 App -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
-    <!-- 车机通常有多路外接摄像头（UVC/环视盒子），所以不写 required -->
+    <!--
+        车机通常有多路外接摄像头（UVC/环视盒子），所以这里全部不写 required。
+        一定要声明 usb.host，否则 Play/部分 ROM 会认为设备不支持 USB 主机模式。
+    -->
     <uses-feature
         android:name="android.hardware.camera"
         android:required="false" />
     <uses-feature
         android:name="android.hardware.camera.any"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.usb.host"
         android:required="false" />
     <uses-feature
         android:name="android.hardware.wifi"
@@ -42,6 +48,14 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- 插上 USB 摄像头时，系统会给出「打开车载哨兵」的选项 -->
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/usb_device_filter" />
         </activity>
 
         <service
@@ -65,6 +79,20 @@
                 <action android:name="android.intent.action.HTC_QUICKBOOT_POWERON" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
+        </receiver>
+
+        <!-- UVC 摄像头插拔：插上立刻重连，不用手动重启服务 -->
+        <receiver
+            android:name=".UsbAttachReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+                <action android:name="android.hardware.usb.action.USB_DEVICE_DETACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/usb_device_filter" />
         </receiver>
 
     </application>

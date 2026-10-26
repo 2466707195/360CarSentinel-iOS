@@ -10,6 +10,7 @@ import SwiftUI
 struct LiveView: View {
 
     @EnvironmentObject private var store: SentryStore
+    @Environment(\.colorScheme) private var scheme
 
     @State private var fullScreenCamera: CameraSource?
     @State private var carouselOnOpen = false
@@ -166,11 +167,13 @@ struct LiveView: View {
                     font: AuroraFont.labelLarge,
                     expands: true
                 )
-                .foregroundStyle(store.device.recording ? Aurora.onRoseContainer : Color.white)
-                .background(
-                    AuroraShape.button.fill(
-                        store.device.recording ? Aurora.roseContainer : Aurora.brand
-                    )
+                .foregroundStyle(
+                    store.device.recording ? Aurora.readableRose(scheme) : Aurora.readableBrand(scheme)
+                )
+                .auroraGlass(
+                    AuroraShape.button,
+                    tint: store.device.recording ? Aurora.rose : Aurora.brand,
+                    tintOpacity: store.device.recording ? 0.18 : 0.12
                 )
             }
             .buttonStyle(PressScaleStyle())

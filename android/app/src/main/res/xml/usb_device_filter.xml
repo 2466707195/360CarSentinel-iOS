@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        UVC 摄像头过滤：USB Video Class = 14，VideoStreaming 子类 = 2。
+        系统按「设备的任意一个接口匹配」来判断，所以只写这两个属性就够。
+        不写具体 vendor/product id —— 车规摄像头的厂商 id 太杂，写死反而漏。
+    -->
+    <usb-device class="14" subclass="2" />
+</resources>

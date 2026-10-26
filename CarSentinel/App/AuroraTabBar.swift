@@ -6,10 +6,10 @@ import SwiftUI
 // 为什么不用系统 TabView：
 //   1. iOS 18 才有 `Tab` 这个 API，用它就得要求 Xcode 16 的 SDK；
 //      本工程故意把门槛压到 16.4，好让任何云端机器都能编。
-//   2. Aurora 的底栏是「实白胶囊 + 选中项浅品牌底 + 品牌色文字」，
-//      系统底栏在低版本上对不上这个视觉。
+//   2. Aurora 的底栏是**透明玻璃胶囊**，系统底栏在低版本上做不出这个材质。
 //
-// 视觉与 Android 端的 `BottomNav.kt` 逐值一致：26pt 圆角、1pt 描边、10pt 阴影。
+// 材质：`.ultraThinMaterial` + 顶部高光 + 双层描边（见 AuroraGlass.swift）。
+// 不能用 iOS 26 的 glassEffect —— 那会把最低 SDK 顶到 26。
 // =============================================================================
 
 enum AppTab: String, CaseIterable, Hashable {
@@ -53,6 +53,8 @@ struct AuroraTabBar<Content: View>: View {
     private let badgeCount: Int
     private let content: (AppTab) -> Content
 
+    @Environment(\.colorScheme) private var scheme
+
     init(
         selection: Binding<AppTab>,
         badgeCount: Int = 0,
@@ -75,14 +77,7 @@ struct AuroraTabBar<Content: View>: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 7)
-            .background(
-                AuroraShape.bar
-                    .fill(Color.white)
-                    .shadow(color: Aurora.barShadow, radius: 10, x: 0, y: 4)
-            )
-            .overlay(
-                AuroraShape.bar.stroke(Aurora.line.opacity(0.55), lineWidth: 1)
-            )
+            .auroraGlass(AuroraShape.bar, tint: Aurora.brand, tintOpacity: 0.03, shadowRadius: 16)
             // 浮层必须整块吞点击，否则空白处点击会穿透到底下的列表项
             .contentShape(AuroraShape.bar)
             .onTapGesture { }
@@ -101,9 +96,13 @@ struct AuroraTabBar<Content: View>: View {
             VStack(spacing: 2) {
                 ZStack {
                     if isSelected {
-                        Circle()
-                            .fill(Aurora.brand.tint(0.13))
-                            .frame(width: 34, height: 26)
+                        Capsule(style: .continuous)
+                            .fill(Aurora.brand.opacity(scheme == .dark ? 0.26 : 0.14))
+                            .frame(width: 42, height: 26)
+                            .overlay(
+                                Capsule(style: .continuous)
+                                    .strokeBorder(Aurora.brand.opacity(0.22), lineWidth: 0.8)
+                            )
                     }
                     Image(systemName: isSelected ? tab.selectedIcon : tab.icon)
                         .font(.system(size: 17, weight: .medium))
@@ -125,7 +124,7 @@ struct AuroraTabBar<Content: View>: View {
                     .font(AuroraFont.labelSmall)
                     .lineLimit(1)
             }
-            .foregroundStyle(isSelected ? Aurora.brand : Aurora.inkSoft)
+            .foregroundStyle(isSelected ? Aurora.readableBrand(scheme) : Aurora.readableSoft(scheme))
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
         }

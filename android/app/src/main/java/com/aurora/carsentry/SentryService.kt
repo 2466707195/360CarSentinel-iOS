@@ -23,7 +23,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
- * 前台服务：把「采集 → 编码 → 切片」和「HTTP 服务」绑在一起，锁屏 / 切后台都不停。
+ * 前台服务：把「采集 → 编码 → 切片」「HTTP 服务」「远程隧道」绑在一起，
+ * 锁屏 / 切后台都不停。
  *
  * 车机上通常设成开机自启、常驻。
  */
@@ -35,14 +36,6 @@ class SentryService : Service() {
         private const val NOTIFICATION_ID = 1001
         const val PORT = 8710
 
-        /** 逻辑机位 → 显示名。顺序对应 Camera2 的 cameraIdList 下标 */
-        val LOGICAL_CHANNELS = listOf(
-            Triple("front", "前视", "front"),
-            Triple("rear", "后视", "rear"),
-            Triple("left", "左视", "left"),
-            Triple("right", "右视", "right"),
-        )
-
         @Volatile
         var instance: SentryService? = null
             private set
@@ -50,15 +43,25 @@ class SentryService : Service() {
         @Volatile
         var lastError: String? = null
             private set
+
+        @Volatile
+        var relayConnected: Boolean = false
+            private set
+
+        @Volatile
+        var relayDetail: String = "未启用"
+            private set
     }
 
     private var http: HttpServer? = null
     private var nsd: NsdHelper? = null
-    private val pipelines = ArrayList<CameraPipeline>()
+    private var relay: RelayTunnel? = null
+    private val runners = ArrayList<ChannelRunner>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var cleanupJob: Job? = null
 
     private val rootDir: File by lazy { File(filesDir, "sentry") }
+    private val registry: SourceRegistry by lazy { SourceRegistry(this) }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -82,13 +85,20 @@ class SentryService : Service() {
             Log.i(TAG, "本次启动来自开机广播")
         }
 
+        // 有相机权限但用的是 RTSP / UVC 源时，也不需要相机权限，
+        // 所以这里只提示，不阻断整条链路。
+        if (!hasCameraPermission()) {
+            Log.w(TAG, "没有相机权限：Camera2 类采集源会失败，其他源不受影响")
+        }
+
+        registry.ensureDefaults()
+
         startServer()
-        startCameraPipelines()
+        startChannels()
+        startRelayIfNeeded()
         startCleanupLoop()
 
-        updateNotification(
-            if (pipelines.any { it.online }) "画面已上线 · 端口 $PORT" else "等待摄像头…"
-        )
+        updateNotification(notificationText())
         ServiceBus.notifyChanged()
 
         return START_STICKY
@@ -96,8 +106,12 @@ class SentryService : Service() {
 
     override fun onDestroy() {
         cleanupJob?.cancel()
-        pipelines.forEach { it.stop() }
-        pipelines.clear()
+        runners.forEach { it.stop() }
+        runners.clear()
+        relay?.stop()
+        relay = null
+        relayConnected = false
+        relayDetail = "未启用"
         http?.stop()
         http = null
         nsd?.unregister()
@@ -134,100 +148,75 @@ class SentryService : Service() {
             "start_record" -> SentryState.recording = true
             "stop_record" -> SentryState.recording = false
             "set_parking_mode" -> SentryState.parkingMode = enabled ?: SentryState.parkingMode
-            "snapshot" -> {
-                // v1 不提供即时截图；手机端不依赖它（见 docs/PROTOCOL.md）
-                Log.i(TAG, "snapshot requested for $cameraId (not implemented in v1)")
-            }
+            "snapshot" -> Log.i(TAG, "snapshot requested for $cameraId (not implemented in v1)")
             else -> Log.w(TAG, "unknown action: $action")
         }
         ServiceBus.notifyChanged()
     }
 
     // ---------------------------------------------------------------------
-    // 摄像头
+    // 采集
     // ---------------------------------------------------------------------
 
-    private fun startCameraPipelines() {
-        if (pipelines.isNotEmpty()) return
+    private fun startChannels() {
+        if (runners.isNotEmpty()) return
 
-        if (!hasCameraPermission()) {
-            // lastError 是可变的伴生属性，直接 Log.w(TAG, lastError) 无法智能转换，
-            // 先落一个局部常量再赋值。
-            val reason = "没有相机权限，画面无法采集"
-            lastError = reason
-            Log.w(TAG, reason)
-            SentryState.setCameras(SentryState.cameras().ifEmpty { emptyChannels() })
-            return
-        }
-
-        lastError = null
-
-        val manager = getSystemService(Context.CAMERA_SERVICE) as? android.hardware.camera2.CameraManager
-        val cameraIds = manager?.cameraIdList?.toList() ?: emptyList()
-        Log.i(TAG, "cameraIds = $cameraIds")
-
-        if (cameraIds.isEmpty()) {
-            lastError = "这台车机没有可用的 Camera2 摄像头"
-            SentryState.setCameras(emptyChannels())
-            return
-        }
-
-        LOGICAL_CHANNELS.forEachIndexed { index, (logicalId, name, position) ->
-            val physicalId = cameraIds.getOrNull(index)
-            if (physicalId == null) {
-                Log.w(TAG, "no physical camera for $logicalId")
-                return@forEachIndexed
-            }
-
-            val liveDir = File(rootDir, "live/$logicalId")
+        Channels.all.forEach { channel ->
+            val liveDir = File(rootDir, "live/${channel.id}")
             liveDir.mkdirs()
 
-            val pipeline = CameraPipeline(
+            val runner = ChannelRunner(
                 context = this,
-                cameraId = physicalId,
-                logicalId = logicalId,
-                displayName = name,
-                position = position,
+                logicalId = channel.id,
+                displayName = channel.name,
+                position = channel.position,
                 liveDir = liveDir,
+                specProvider = { registry.specFor(channel.id) },
                 onClipReady = { clipId, startAt, duration, bytes ->
-                    onClipReady(logicalId, clipId, startAt, duration, bytes)
+                    onClipReady(channel.id, clipId, startAt, duration, bytes)
                 },
+                onChanged = { ServiceBus.notifyChanged() },
             )
-            pipelines.add(pipeline)
-            pipeline.start()
+            runners.add(runner)
+            runner.start()
         }
 
-        // 先给一份「全部离线」的快照，等 pipeline 自己把 online 打开
-        SentryState.setCameras(
-            LOGICAL_CHANNELS.map { (logicalId, name, position) ->
-                CameraInfo(
-                    id = logicalId,
-                    name = name,
-                    position = position,
-                    online = false,
-                    resolution = "--",
-                    fps = 0,
-                    bitrateKbps = 0,
-                    hlsPath = null,
-                    snapshotPath = null,
-                )
-            }
-        )
+        SentryState.setCameras(runners.map { it.toCameraInfo() })
     }
 
-    private fun emptyChannels(): List<CameraInfo> = LOGICAL_CHANNELS.map { (logicalId, name, position) ->
-        CameraInfo(
-            id = logicalId,
-            name = name,
-            position = position,
-            online = false,
-            resolution = "--",
-            fps = 0,
-            bitrateKbps = 0,
-            hlsPath = null,
-            snapshotPath = null,
-        )
+    /** 用户改了某一路的采集源：让那一侧重连（其他路不受影响） */
+    fun applySourceChange(channelId: String) {
+        val runner = runners.firstOrNull { it.logicalId == channelId } ?: return
+        Log.i(TAG, "source changed for $channelId -> ${registry.specFor(channelId)}")
+        runner.requestRestart()
+        SentryState.setCameras(runners.map { it.toCameraInfo() })
+        ServiceBus.notifyChanged()
     }
+
+    /** 重新扫描设备并自动分配（UI 上的「自动分配」） */
+    fun autoAssignSources() {
+        registry.autoAssign()
+        runners.forEach { it.requestRestart() }
+        ServiceBus.notifyChanged()
+    }
+
+    /** USB 摄像头插拔：只有 UVC / 未配置的机位需要重连，别把 RTSP 也打断 */
+    fun onUsbChanged() {
+        runners.forEach { runner ->
+            val spec = registry.specFor(runner.logicalId)
+            if (spec.type == SourceType.UVC || spec.isNone) runner.requestRestart()
+        }
+        ServiceBus.notifyChanged()
+    }
+
+    /** 给 UI 与 API 用的实时状态刷新 */
+    fun refreshCameraInfo() {
+        if (runners.isEmpty()) return
+        SentryState.setCameras(runners.map { it.toCameraInfo() })
+    }
+
+    fun runnerStatus(channelId: String): String =
+        runners.firstOrNull { it.logicalId == channelId }?.statusLine() ?: "未启动"
 
     private fun onClipReady(
         logicalId: String,
@@ -251,11 +240,49 @@ class SentryService : Service() {
         ServiceBus.notifyChanged()
     }
 
-    /** 给 UI 与 API 用的实时状态刷新 */
-    fun refreshCameraInfo() {
-        if (pipelines.isEmpty()) return
-        SentryState.setCameras(pipelines.map { it.toCameraInfo() })
+    // ---------------------------------------------------------------------
+    // 远程
+    // ---------------------------------------------------------------------
+
+    private fun startRelayIfNeeded() {
+        if (!SentryPrefs.relayEnabled(this)) {
+            relayDetail = "未启用"
+            return
+        }
+        val url = SentryPrefs.relayUrl(this)
+        if (url.isBlank()) {
+            relayDetail = "未填中继地址"
+            return
+        }
+
+        SentryPrefs.ensureRelayIdentity(this)
+
+        val tunnel = RelayTunnel(
+            baseUrl = url,
+            room = SentryPrefs.relayRoom(this),
+            key = SentryPrefs.relayKey(this),
+            localPort = PORT,
+        ) { connected, detail ->
+            relayConnected = connected
+            relayDetail = detail
+            ServiceBus.notifyChanged()
+            updateNotification(notificationText())
+        }
+        tunnel.start()
+        relay = tunnel
+        relayDetail = "连接中…"
     }
+
+    fun restartRelay() {
+        relay?.stop()
+        relay = null
+        relayConnected = false
+        startRelayIfNeeded()
+        ServiceBus.notifyChanged()
+    }
+
+    fun relayInfo(): Triple<Boolean, String, String> =
+        Triple(SentryPrefs.relayEnabled(this), SentryPrefs.relayUrl(this), relayDetail)
 
     // ---------------------------------------------------------------------
     // 清理
@@ -303,6 +330,16 @@ class SentryService : Service() {
     private fun hasCameraPermission(): Boolean =
         ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) ==
             PackageManager.PERMISSION_GRANTED
+
+    private fun notificationText(): String {
+        val online = SentryState.cameras().count { it.online }
+        val base = "画面 $online / ${Channels.all.size} 路 · 端口 $PORT"
+        return if (SentryPrefs.relayEnabled(this)) {
+            "$base · 远程${if (relayConnected) "已连接" else "未连接"}"
+        } else {
+            base
+        }
+    }
 
     private fun createChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return

@@ -11,6 +11,7 @@ struct ClipPlayerView: View {
 
     @EnvironmentObject private var store: SentryStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var scheme
 
     let clip: RecordingClip
 
@@ -120,7 +121,7 @@ struct ClipPlayerView: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Color.white)
                     .frame(width: 34, height: 34)
-                    .background(Circle().fill(Color.white.opacity(0.14)))
+                    .auroraGlassCircle(diameter: 34, tint: Color.white, tintOpacity: 0.14)
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
@@ -194,9 +195,9 @@ struct ClipPlayerView: View {
                         Text(isPlaying ? "暂停" : "播放")
                             .font(AuroraFont.labelMedium)
                     }
-                    .foregroundStyle(Color.black)
+                    .foregroundStyle(Color.black.opacity(0.86))
                     .frame(width: 92, height: 40)
-                    .background(Capsule().fill(Color.white))
+                    .auroraGlassCapsule(tint: Color.white, tintOpacity: 0.72, shadowRadius: 8)
                     .contentShape(Capsule())
                 }
                 .buttonStyle(PressScaleStyle(scale: 0.96))
@@ -211,14 +212,7 @@ struct ClipPlayerView: View {
             }
         }
         .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .fill(Color(hex: 0x1C1C24))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .stroke(Color.white.opacity(0.08), lineWidth: 1)
-        )
+        .auroraGlass(cornerRadius: 26, tint: Color.black, tintOpacity: 0.24, shadowRadius: 18)
         .padding(.horizontal, 12)
         .padding(.bottom, 12)
     }

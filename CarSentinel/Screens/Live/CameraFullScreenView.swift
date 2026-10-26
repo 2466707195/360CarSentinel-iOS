@@ -137,13 +137,12 @@ struct CameraFullScreenView: View {
                                 Text(item.name)
                                     .font(AuroraFont.labelMedium)
                             }
-                            .foregroundStyle(item.id == cameraID ? Color.black : Color.white)
+                            .foregroundStyle(item.id == cameraID ? Color.black.opacity(0.85) : Color.white)
                             .padding(.horizontal, 11)
                             .padding(.vertical, 7)
-                            .background(
-                                Capsule().fill(
-                                    item.id == cameraID ? Color.white : Color.white.opacity(0.14)
-                                )
+                            .auroraGlassCapsule(
+                                tint: item.id == cameraID ? Color.white : Color.black,
+                                tintOpacity: item.id == cameraID ? 0.62 : 0.22
                             )
                         }
                         .buttonStyle(.plain)
@@ -208,8 +207,7 @@ struct CameraFullScreenView: View {
             Image(systemName: icon)
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(Color.white)
-                .frame(width: 34, height: 34)
-                .background(Circle().fill(Color.black.opacity(0.45)))
+                .auroraGlassCircle(diameter: 34, tint: Color.black, tintOpacity: 0.26)
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -237,11 +235,13 @@ struct CameraFullScreenView: View {
                 Text(title)
                     .font(.system(size: 10, weight: .medium))
             }
-            .foregroundStyle(active ? Aurora.brand : Color.white.opacity(0.85))
+            .foregroundStyle(active ? Aurora.brand : Color.white.opacity(0.9))
             .frame(width: 54, height: 44)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(active ? Color.white : Color.white.opacity(0.10))
+            .auroraGlass(
+                cornerRadius: 14,
+                tint: active ? Color.white : Color.black,
+                tintOpacity: active ? 0.60 : 0.22,
+                shadowRadius: 6
             )
             .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }

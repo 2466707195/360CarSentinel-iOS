@@ -124,6 +124,8 @@ struct ChipButton: View {
     var count: Int? = nil
     let action: () -> Void
 
+    @Environment(\.colorScheme) private var scheme
+
     var body: some View {
         Button(action: action) {
             HStack(spacing: 4) {
@@ -141,18 +143,17 @@ struct ChipButton: View {
                         .padding(.horizontal, 4)
                         .padding(.vertical, 1)
                         .background(
-                            Capsule().fill(selected ? Color.white.opacity(0.26) : tint.tint(0.12))
+                            Capsule().fill(selected ? Color.white.opacity(0.26) : tint.opacity(0.14))
                         )
                 }
             }
-            .foregroundStyle(selected ? Color.white : Aurora.inkSoft)
+            .foregroundStyle(selected ? Color.white : Aurora.readableSoft(scheme))
             .padding(.horizontal, 11)
             .padding(.vertical, 7)
-            .background(
-                Capsule().fill(selected ? tint : Color.white)
-            )
-            .overlay(
-                Capsule().stroke(selected ? tint : Aurora.line.opacity(0.7), lineWidth: 1)
+            // 选中 = 品牌色玻璃，未选中 = 中性玻璃。两者都是半透明，只是染色不同
+            .auroraGlassCapsule(
+                tint: selected ? tint : Aurora.brand,
+                tintOpacity: selected ? (scheme == .dark ? 0.80 : 0.88) : 0.05
             )
         }
         .buttonStyle(PressScaleStyle(scale: 0.96))
@@ -284,7 +285,12 @@ struct AuroraToolbarIconButton: View {
                 .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(tint)
                 .frame(width: AuroraMetrics.iconButtonSize, height: AuroraMetrics.iconButtonSize)
-                .contentShape(Rectangle())
+                .auroraGlassCircle(
+                    diameter: AuroraMetrics.iconButtonSize,
+                    tint: Aurora.brand,
+                    tintOpacity: 0.05
+                )
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
     }

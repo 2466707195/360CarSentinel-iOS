@@ -3,7 +3,11 @@ import Foundation
 // =============================================================================
 // 车机端 REST 客户端
 //
-// 全部走局域网 HTTP，没有云端。协议见 docs/PROTOCOL.md。
+// 两种部署共用同一套接口：
+//   · 局域网 —— http://车机IP:8710
+//   · 远程   —— https://中继域名/v1/{房间号}/{密钥}
+// 差异全部收在 DeviceEndpoint.baseURLString 里，这里只拼相对路径。
+// 协议见 docs/PROTOCOL.md。
 // 超时压得很短（4 秒）：车载 WiFi 断流时用户不能盯着转圈 30 秒。
 // =============================================================================
 
@@ -65,7 +69,7 @@ struct SentryAPI {
             return URL(string: path)
         }
         let trimmed = path.hasPrefix("/") ? String(path.dropFirst()) : path
-        return URL(string: "http://\(endpoint.host):\(endpoint.port)/\(trimmed)")
+        return URL(string: endpoint.baseURLString + "/" + trimmed)
     }
 
     // MARK: - 接口
@@ -101,7 +105,7 @@ struct SentryAPI {
 
     /// 轻量探活：只取 info 的状态码，不解析 body。
     func probe() async -> Bool {
-        guard let url = URL(string: "http://\(endpoint.host):\(endpoint.port)/api/v1/info") else {
+        guard let url = URL(string: endpoint.baseURLString + "/api/v1/info") else {
             return false
         }
         do {
@@ -116,7 +120,7 @@ struct SentryAPI {
     // MARK: - 底层
 
     private func get<T: Decodable>(_ path: String) async throws -> T {
-        guard let url = URL(string: "http://\(endpoint.host):\(endpoint.port)/\(path)") else {
+        guard let url = URL(string: endpoint.baseURLString + "/" + path) else {
             throw SentryError.badURL
         }
         var request = URLRequest(url: url)
@@ -136,7 +140,7 @@ struct SentryAPI {
 
     @discardableResult
     private func post(_ path: String, body: [String: Any]) async throws -> Data {
-        guard let url = URL(string: "http://\(endpoint.host):\(endpoint.port)/\(path)") else {
+        guard let url = URL(string: endpoint.baseURLString + "/" + path) else {
             throw SentryError.badURL
         }
         var request = URLRequest(url: url)
