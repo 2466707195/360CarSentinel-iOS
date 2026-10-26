@@ -155,7 +155,7 @@ final class SentryStore: ObservableObject {
         guard link.isOnline, let api else {
             // 演示模式：只让码率跳动，制造"在跑"的感觉
             liveBitrateKbps = MockLibrary.jitterRate(
-                base: cameras.reduce(0) { $0 + $1.bitrateKbps },
+                cameras.reduce(0) { $0 + $1.bitrateKbps },
                 tick: tick
             )
             return
